@@ -2,7 +2,7 @@ from fastapi import FastAPI, Depends, HTTPException, Header
 from sqlalchemy.orm import Session
 from datetime import datetime, timedelta
 from typing import Optional
-import secrets
+from pydantic import BaseModel
 
 from database import get_db, engine, Base, settings
 import models
@@ -28,6 +28,59 @@ def get_current_user(authorization: Optional[str] = Header(None), db: Session = 
     return user
 
 # ---------------------------------------------------------------------------
+# Login (for dashboard)
+# ---------------------------------------------------------------------------
+class LoginRequest(BaseModel):
+    email: str
+    password: str
+
+@app.post("/login")
+def login(payload: LoginRequest, db: Session = Depends(get_db)):
+    user = db.query(models.User).filter(models.User.email == payload.email).first()
+    if not user or not user.password_hash:
+        raise HTTPException(status_code=401, detail="Invalid email or password")
+    if not security.verify_password(payload.password, user.password_hash):
+        raise HTTPException(status_code=401, detail="Invalid email or password")
+
+    # Issue a fresh long-term token for the session
+    plain_token = security.create_long_term_token(user.user_id)
+    user.api_key_hash = security.hash_api_key(plain_token)
+    db.commit()
+
+    return {"status": "ok", "token": plain_token}
+
+# ---------------------------------------------------------------------------
+# Dashboard endpoints
+# ---------------------------------------------------------------------------
+@app.get("/dashboard/summary")
+def dashboard_summary(user: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
+    # Placeholder values — replace with real calculations later
+    return {
+        "total_sales": "$0.00",
+        "units_sold": 0,
+        "stockout_risks": 0,
+        "excess_inventory": 0
+    }
+
+@app.get("/dashboard/recommendations")
+def dashboard_recommendations(user: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
+    # Placeholder — return empty list for now
+    return []
+
+# ---------------------------------------------------------------------------
+# Ask AI
+# ---------------------------------------------------------------------------
+class AskRequest(BaseModel):
+    question: str
+
+@app.post("/ask")
+def ask_ai(payload: AskRequest, user: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
+    # Placeholder response. Later this will call Claude with the user's key and data context.
+    return {
+        "answer": f"You asked: “{payload.question}”. AI responses will appear here once Claude integration is connected."
+    }
+
+# ---------------------------------------------------------------------------
 # Onboarding
 # ---------------------------------------------------------------------------
 @app.get("/onboard/token", response_model=schemas.OnboardTokenResponse)
@@ -41,15 +94,12 @@ def get_onboarding_token(db: Session = Depends(get_db)):
 
 @app.post("/onboard", response_model=schemas.StandardResponse)
 def onboard(payload: schemas.OnboardPayload, db: Session = Depends(get_db)):
-    # For now we accept the call and create/update the user.
-    # In a fuller version you would validate the short-lived token from a header or body.
     user = db.query(models.User).filter(models.User.user_id == payload.userID).first()
     if not user:
         user = models.User(user_id=payload.userID)
         db.add(user)
         db.flush()
 
-    # Issue long-term token
     plain_token = security.create_long_term_token(payload.userID)
     user.api_key_hash = security.hash_api_key(plain_token)
     db.commit()
@@ -91,7 +141,7 @@ def upload(
     return {"status": "ok", "message": f"Processed {upload_type}"}
 
 # ---------------------------------------------------------------------------
-# Handlers (stubs that can be expanded)
+# Handlers
 # ---------------------------------------------------------------------------
 def _handle_subsidiaries(payload, user, db):
     for row in payload.data or []:
@@ -163,7 +213,6 @@ def _handle_inventory(payload, user, db):
             ))
 
 def _handle_open_pos(payload, user, db):
-    # Simple replace-style for now; can be refined
     for row in payload.data or []:
         db.add(models.OpenPO(
             user_id=user.user_id,
@@ -176,20 +225,17 @@ def _handle_open_pos(payload, user, db):
 
 def _handle_sales(payload, user, db):
     for doc in payload.data or []:
-        # Upsert document
         existing = db.query(models.SalesDocument).filter_by(
             user_id=user.user_id, sid=doc.get("sid")
         ).first()
         if not existing:
             existing = models.SalesDocument(user_id=user.user_id, sid=doc.get("sid"))
             db.add(existing)
-        # Update header fields
         for field in ["bt_cuid", "subsidiary_number", "store_number", "sold_qty",
                       "return_qty", "order_qty", "status", "receipt_type", "order_type",
                       "transaction_subtotal", "sale_total_tax_amt", "transaction_total_amt",
                       "document_number", "workstation_name"]:
             setattr(existing, field, doc.get(field))
-        # Parse datetimes if present
         for dt_field in ["created_datetime", "modified_datetime"]:
             if doc.get(dt_field):
                 try:
@@ -197,7 +243,6 @@ def _handle_sales(payload, user, db):
                 except Exception:
                     pass
         db.flush()
-        # Lines – simple approach: delete old lines and re-insert
         db.query(models.SalesLine).filter_by(
             user_id=user.user_id, document_sid=doc.get("sid")
         ).delete()
@@ -217,7 +262,6 @@ def _handle_sales(payload, user, db):
             ))
 
 def _handle_logins(payload, user, db):
-    # Expect data to contain email/password or update existing user
     for row in payload.data or []:
         if row.get("email"):
             user.email = row.get("email")
