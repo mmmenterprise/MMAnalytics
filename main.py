@@ -4,8 +4,10 @@ from datetime import datetime, timedelta
 from typing import Optional
 import secrets
 
-from .database import get_db, engine, Base, settings
-from . import models, schemas, security
+from database import get_db, engine, Base, settings
+import models
+import schemas
+import security
 
 # Create tables
 Base.metadata.create_all(bind=engine)
