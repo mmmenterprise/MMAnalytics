@@ -1,0 +1,231 @@
+from fastapi import FastAPI, Depends, HTTPException, Header
+from sqlalchemy.orm import Session
+from datetime import datetime, timedelta
+from typing import Optional
+import secrets
+
+from .database import get_db, engine, Base, settings
+from . import models, schemas, security
+
+# Create tables
+Base.metadata.create_all(bind=engine)
+
+app = FastAPI(title="MMA Server", version="0.1.0")
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+def get_current_user(authorization: Optional[str] = Header(None), db: Session = Depends(get_db)):
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Missing or invalid Authorization header")
+    token = authorization.split(" ", 1)[1]
+    token_hash = security.hash_api_key(token)
+    user = db.query(models.User).filter(models.User.api_key_hash == token_hash).first()
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid token")
+    return user
+
+# ---------------------------------------------------------------------------
+# Onboarding
+# ---------------------------------------------------------------------------
+@app.get("/onboard/token", response_model=schemas.OnboardTokenResponse)
+def get_onboarding_token(db: Session = Depends(get_db)):
+    token = security.create_onboarding_token()
+    expires = datetime.utcnow() + timedelta(minutes=settings.onboarding_token_expire_minutes)
+    db_token = models.OnboardingToken(token=token, expires_at=expires)
+    db.add(db_token)
+    db.commit()
+    return {"token": token, "expires_in": settings.onboarding_token_expire_minutes * 60}
+
+@app.post("/onboard", response_model=schemas.StandardResponse)
+def onboard(payload: schemas.OnboardPayload, db: Session = Depends(get_db)):
+    # For now we accept the call and create/update the user.
+    # In a fuller version you would validate the short-lived token from a header or body.
+    user = db.query(models.User).filter(models.User.user_id == payload.userID).first()
+    if not user:
+        user = models.User(user_id=payload.userID)
+        db.add(user)
+        db.flush()
+
+    # Issue long-term token
+    plain_token = security.create_long_term_token(payload.userID)
+    user.api_key_hash = security.hash_api_key(plain_token)
+    db.commit()
+
+    return {"status": "ok", "token": plain_token, "message": "Account created/updated"}
+
+# ---------------------------------------------------------------------------
+# Main upload endpoint
+# ---------------------------------------------------------------------------
+@app.post("/upload", response_model=schemas.StandardResponse)
+def upload(
+    payload: schemas.UploadPayload,
+    user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    if payload.userID != user.user_id:
+        raise HTTPException(status_code=403, detail="userID does not match token")
+
+    upload_type = payload.uploadType.lower()
+
+    if upload_type == "subsidiaries":
+        _handle_subsidiaries(payload, user, db)
+    elif upload_type == "stores":
+        _handle_stores(payload, user, db)
+    elif upload_type == "items":
+        _handle_items(payload, user, db)
+    elif upload_type == "inventory":
+        _handle_inventory(payload, user, db)
+    elif upload_type == "open_pos":
+        _handle_open_pos(payload, user, db)
+    elif upload_type == "sales":
+        _handle_sales(payload, user, db)
+    elif upload_type == "logins":
+        _handle_logins(payload, user, db)
+    else:
+        return {"status": "error", "message": f"Unknown uploadType: {payload.uploadType}"}
+
+    db.commit()
+    return {"status": "ok", "message": f"Processed {upload_type}"}
+
+# ---------------------------------------------------------------------------
+# Handlers (stubs that can be expanded)
+# ---------------------------------------------------------------------------
+def _handle_subsidiaries(payload, user, db):
+    for row in payload.data or []:
+        existing = db.query(models.Subsidiary).filter_by(
+            user_id=user.user_id, sbssid=row.get("sbssid")
+        ).first()
+        if existing:
+            existing.sbsno = row.get("sbsno")
+            existing.sbsname = row.get("sbsname")
+            existing.currencycode = row.get("currencycode")
+        else:
+            db.add(models.Subsidiary(
+                user_id=user.user_id,
+                sbssid=row.get("sbssid"),
+                sbsno=row.get("sbsno"),
+                sbsname=row.get("sbsname"),
+                currencycode=row.get("currencycode")
+            ))
+
+def _handle_stores(payload, user, db):
+    for row in payload.data or []:
+        existing = db.query(models.Store).filter_by(
+            user_id=user.user_id, storesid=row.get("storesid")
+        ).first()
+        if existing:
+            for field in ["sbsno", "storeno", "storecode", "storename",
+                          "address1", "address2", "address3", "address4",
+                          "address5", "address6", "zip"]:
+                setattr(existing, field, row.get(field))
+        else:
+            db.add(models.Store(user_id=user.user_id, **{k: row.get(k) for k in [
+                "storesid", "sbsno", "storeno", "storecode", "storename",
+                "address1", "address2", "address3", "address4", "address5", "address6", "zip"
+            ]}))
+
+def _handle_items(payload, user, db):
+    for row in payload.data or []:
+        existing = db.query(models.Item).filter_by(
+            user_id=user.user_id, sid=row.get("sid")
+        ).first()
+        if existing:
+            existing.sku = row.get("sku")
+            existing.description = row.get("description")
+        else:
+            db.add(models.Item(
+                user_id=user.user_id,
+                sid=row.get("sid"),
+                sku=row.get("sku"),
+                description=row.get("description")
+            ))
+
+def _handle_inventory(payload, user, db):
+    for row in payload.data or []:
+        existing = db.query(models.Inventory).filter_by(
+            user_id=user.user_id,
+            sid=row.get("sid"),
+            qtystoresid=row.get("qtystoresid"),
+            qtysbssid=row.get("qtysbssid")
+        ).first()
+        if existing:
+            existing.qtyqty = row.get("qtyqty")
+        else:
+            db.add(models.Inventory(
+                user_id=user.user_id,
+                sid=row.get("sid"),
+                qtystoresid=row.get("qtystoresid"),
+                qtysbssid=row.get("qtysbssid"),
+                qtyqty=row.get("qtyqty")
+            ))
+
+def _handle_open_pos(payload, user, db):
+    # Simple replace-style for now; can be refined
+    for row in payload.data or []:
+        db.add(models.OpenPO(
+            user_id=user.user_id,
+            sid=row.get("sid"),
+            storesid=row.get("storesid") or row.get("qtystoresid"),
+            sbssid=row.get("sbssid") or row.get("qtysbssid"),
+            qty_on_order=row.get("qty_on_order") or row.get("qtyqty"),
+            po_number=row.get("po_number")
+        ))
+
+def _handle_sales(payload, user, db):
+    for doc in payload.data or []:
+        # Upsert document
+        existing = db.query(models.SalesDocument).filter_by(
+            user_id=user.user_id, sid=doc.get("sid")
+        ).first()
+        if not existing:
+            existing = models.SalesDocument(user_id=user.user_id, sid=doc.get("sid"))
+            db.add(existing)
+        # Update header fields
+        for field in ["bt_cuid", "subsidiary_number", "store_number", "sold_qty",
+                      "return_qty", "order_qty", "status", "receipt_type", "order_type",
+                      "transaction_subtotal", "sale_total_tax_amt", "transaction_total_amt",
+                      "document_number", "workstation_name"]:
+            setattr(existing, field, doc.get(field))
+        # Parse datetimes if present
+        for dt_field in ["created_datetime", "modified_datetime"]:
+            if doc.get(dt_field):
+                try:
+                    setattr(existing, dt_field, datetime.fromisoformat(doc[dt_field].replace("Z", "+00:00")))
+                except Exception:
+                    pass
+        db.flush()
+        # Lines – simple approach: delete old lines and re-insert
+        db.query(models.SalesLine).filter_by(
+            user_id=user.user_id, document_sid=doc.get("sid")
+        ).delete()
+        for line in doc.get("items") or []:
+            db.add(models.SalesLine(
+                document_sid=doc.get("sid"),
+                user_id=user.user_id,
+                invn_sbs_item_sid=line.get("invn_sbs_item_sid"),
+                quantity=line.get("quantity"),
+                price=line.get("price"),
+                original_price=line.get("original_price"),
+                cost=line.get("cost"),
+                total_discount_amount=line.get("total_discount_amount"),
+                item_type=line.get("item_type"),
+                upc=line.get("upc"),
+                alu=line.get("alu")
+            ))
+
+def _handle_logins(payload, user, db):
+    # Expect data to contain email/password or update existing user
+    for row in payload.data or []:
+        if row.get("email"):
+            user.email = row.get("email")
+        if row.get("password"):
+            user.password_hash = security.hash_password(row.get("password"))
+        if row.get("claudeKey"):
+            user.claude_key_encrypted = security.encrypt_claude_key(row.get("claudeKey"))
+        if row.get("claudeModel"):
+            user.claude_model = row.get("claudeModel")
+
+@app.get("/health")
+def health():
+    return {"status": "ok"}
