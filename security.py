@@ -3,7 +3,7 @@ from datetime import datetime, timedelta
 from passlib.context import CryptContext
 from jose import jwt
 from cryptography.fernet import Fernet
-from .database import settings
+from database import settings
 import base64
 import hashlib
 
