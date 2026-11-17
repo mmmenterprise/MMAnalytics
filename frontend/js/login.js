@@ -1,4 +1,4 @@
-const API_BASE = 'https://mmanalyticsnow.com';
+const API_BASE = 'https://api.mmanalyticsnow.com';
 
 document.getElementById('login-form').addEventListener('submit', async (e) => {
   e.preventDefault();

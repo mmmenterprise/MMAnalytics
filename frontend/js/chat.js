@@ -1,4 +1,4 @@
-const API_BASE = 'https://mmanalyticsnow.com';
+const API_BASE = 'https://api.mmanalyticsnow.com';
 const token = localStorage.getItem('mma_token');
 
 const panel = document.getElementById('chat-panel');

@@ -1,8 +1,8 @@
-const API_BASE = 'https://mmanalyticsnow.com';
+const API_BASE = 'https://api.mmanalyticsnow.com';
 const token = localStorage.getItem('mma_token');
 
 if (!token) {
-  window.location.href = 'index.html';
+  window.location.href = 'login.html';
 }
 
 document.getElementById('user-email').textContent = localStorage.getItem('mma_email') || '';
@@ -10,7 +10,7 @@ document.getElementById('user-email').textContent = localStorage.getItem('mma_em
 document.getElementById('logout-btn').addEventListener('click', () => {
   localStorage.removeItem('mma_token');
   localStorage.removeItem('mma_email');
-  window.location.href = 'index.html';
+  window.location.href = 'login.html';
 });
 
 async function loadDashboard() {
