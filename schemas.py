@@ -21,5 +21,6 @@ class UploadPayload(BaseModel):
 
 class OnboardPayload(BaseModel):
     userID: str
+    storecode: Optional[str] = None
     uploadType: str
     uploadTime: str

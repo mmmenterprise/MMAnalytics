@@ -100,6 +100,9 @@ def onboard(payload: schemas.OnboardPayload, db: Session = Depends(get_db)):
         db.add(user)
         db.flush()
 
+    if payload.storecode:
+        user.storecode = payload.storecode
+
     plain_token = security.create_long_term_token(payload.userID)
     user.api_key_hash = security.hash_api_key(plain_token)
     db.commit()

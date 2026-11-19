@@ -7,6 +7,7 @@ class User(Base):
     __tablename__ = "users"
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(String(50), unique=True, index=True, nullable=False)  # Retail Pro userID
+    storecode = Column(String(10), nullable=True)  # store code from onboard
     email = Column(String(255), unique=True, index=True, nullable=True)
     password_hash = Column(String(255), nullable=True)
     api_key_hash = Column(String(255), nullable=True)  # hash of the long-term Bearer token
