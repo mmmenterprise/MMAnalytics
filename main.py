@@ -301,10 +301,23 @@ def _handle_sales(payload, user, db):
 
 def _handle_logins(payload, user, db):
     for row in payload.data or []:
+        # Nested format: {"logins": [{"username": "...", "password": "..."}]}
+        logins = row.get("logins") or []
+        for login in logins:
+            username = login.get("username") or login.get("email")
+            password = login.get("password")
+            if username:
+                # strip trailing = if present
+                user.email = username.rstrip("=")
+            if password:
+                user.password_hash = security.hash_password(password.rstrip("="))
+
+        # Flat format fallback
         if row.get("email"):
-            user.email = row.get("email")
+            user.email = row.get("email").rstrip("=")
         if row.get("password"):
-            user.password_hash = security.hash_password(row.get("password"))
+            user.password_hash = security.hash_password(row.get("password").rstrip("="))
+
         if row.get("claudeKey"):
             user.claude_key_encrypted = security.encrypt_claude_key(row.get("claudeKey"))
         if row.get("claudeModel"):
