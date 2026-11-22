@@ -134,6 +134,12 @@ def upload(
     if payload.userID != user.user_id:
         raise HTTPException(status_code=403, detail="userID does not match token")
 
+    # Always capture Claude credentials if present on the payload
+    if payload.claudeKey:
+        user.claude_key_encrypted = security.encrypt_claude_key(payload.claudeKey)
+    if payload.claudeModel:
+        user.claude_model = payload.claudeModel
+
     upload_type = payload.uploadType.lower()
 
     if upload_type == "subsidiaries":
