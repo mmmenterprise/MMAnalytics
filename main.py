@@ -180,21 +180,43 @@ def _handle_stores(payload, user, db):
                 "address1", "address2", "address3", "address4", "address5", "address6", "zip"
             ]}))
 
+def _to_decimal(val):
+    if val is None or val == "":
+        return None
+    try:
+        return float(val)
+    except (ValueError, TypeError):
+        return None
+
 def _handle_items(payload, user, db):
     for row in payload.data or []:
         existing = db.query(models.Item).filter_by(
             user_id=user.user_id, sid=row.get("sid")
         ).first()
+        fields = {
+            "sku": row.get("sku"),
+            "upc": row.get("upc"),
+            "alu": row.get("alu"),
+            "description1": row.get("description1"),
+            "description2": row.get("description2"),
+            "vendorcode": row.get("vendorcode"),
+            "dcscode": row.get("dcscode"),
+            "sbsno": row.get("sbsno"),
+            "stylesid": str(row.get("stylesid")) if row.get("stylesid") is not None else None,
+            "noninventory": row.get("noninventory"),
+            "orderable": row.get("orderable"),
+            "kittype": row.get("kittype"),
+            "cost": _to_decimal(row.get("cost")),
+            "price": _to_decimal(row.get("price")),
+            "lastsolddate": row.get("lastsolddate"),
+            "lastrcvddate": row.get("lastrcvddate"),
+            "lastrcvdcost": _to_decimal(row.get("lastrcvdcost")),
+        }
         if existing:
-            existing.sku = row.get("sku")
-            existing.description = row.get("description")
+            for k, v in fields.items():
+                setattr(existing, k, v)
         else:
-            db.add(models.Item(
-                user_id=user.user_id,
-                sid=row.get("sid"),
-                sku=row.get("sku"),
-                description=row.get("description")
-            ))
+            db.add(models.Item(user_id=user.user_id, sid=row.get("sid"), **fields))
 
 def _handle_inventory(payload, user, db):
     for row in payload.data or []:

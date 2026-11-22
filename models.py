@@ -54,8 +54,22 @@ class Item(Base):
     user_id = Column(String(50), ForeignKey("users.user_id"), index=True)
     sid = Column(String(30), index=True)  # item SID
     sku = Column(String(50))
-    description = Column(String(255))
-    # add other item fields as needed
+    upc = Column(String(50))
+    alu = Column(String(50))
+    description1 = Column(String(255))
+    description2 = Column(String(255))
+    vendorcode = Column(String(50))
+    dcscode = Column(String(50))
+    sbsno = Column(Integer)
+    stylesid = Column(String(30))
+    noninventory = Column(Boolean, default=False)
+    orderable = Column(Boolean, default=True)
+    kittype = Column(Integer)
+    cost = Column(Numeric(14, 4))
+    price = Column(Numeric(14, 4))
+    lastsolddate = Column(String(30))
+    lastrcvddate = Column(String(30))
+    lastrcvdcost = Column(Numeric(14, 4))
 
 class Inventory(Base):
     __tablename__ = "inventory"
