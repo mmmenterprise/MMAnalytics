@@ -300,6 +300,12 @@ def _handle_sales(payload, user, db):
             ))
 
 def _handle_logins(payload, user, db):
+    # claudeKey / claudeModel live on the payload itself
+    if payload.claudeKey:
+        user.claude_key_encrypted = security.encrypt_claude_key(payload.claudeKey)
+    if payload.claudeModel:
+        user.claude_model = payload.claudeModel
+
     for row in payload.data or []:
         # Nested format: {"logins": [{"username": "...", "password": "..."}]}
         logins = row.get("logins") or []
@@ -307,17 +313,17 @@ def _handle_logins(payload, user, db):
             username = login.get("username") or login.get("email")
             password = login.get("password")
             if username:
-                # strip trailing = if present
-                user.email = username.rstrip("=")
+                user.email = str(username).rstrip("=")
             if password:
-                user.password_hash = security.hash_password(password.rstrip("="))
+                user.password_hash = security.hash_password(str(password).rstrip("="))
 
         # Flat format fallback
         if row.get("email"):
-            user.email = row.get("email").rstrip("=")
+            user.email = str(row.get("email")).rstrip("=")
         if row.get("password"):
-            user.password_hash = security.hash_password(row.get("password").rstrip("="))
+            user.password_hash = security.hash_password(str(row.get("password")).rstrip("="))
 
+        # Also check row-level claude fields just in case
         if row.get("claudeKey"):
             user.claude_key_encrypted = security.encrypt_claude_key(row.get("claudeKey"))
         if row.get("claudeModel"):
